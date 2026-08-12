@@ -85,7 +85,7 @@ NODE_MIRROR="${NODE_MIRROR:-https://nodejs.org/dist}"
 NODE_MIRROR_CN="https://npmmirror.com/mirrors/node"
 NODE_MUSL_MIRROR="https://unofficial-builds.nodejs.org/download/release"
 # 项目自托管 ARM64 musl Node.js (unofficial-builds 仅提供 x64 musl)
-NODE_SELF_HOST="https://github.com/10000ge10000/luci-app-openclaw/releases/download/node-bins"
+NODE_SELF_HOST="https://github.com/Njryadmin/luci-app-openclaw/releases/download/node-bins"
 
 export PATH="${NODE_BASE}/bin:${OC_GLOBAL}/bin:$PATH"
 export NODE_ICU_DATA="${NODE_BASE}/share/icu"

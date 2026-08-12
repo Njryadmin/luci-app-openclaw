@@ -35,7 +35,7 @@ fi
   echo "opkg install luci-app-openclaw_${VER}-1_all.ipk"
   echo '```'
   echo ''
-  echo '[使用文档](https://github.com/10000ge10000/luci-app-openclaw#readme) · [问题反馈](https://github.com/10000ge10000/luci-app-openclaw/issues) · [B站](https://space.bilibili.com/59438380) · [博客](https://blog.910501.xyz/)'
+  echo '[使用文档](https://github.com/Njryadmin/luci-app-openclaw#readme) · [问题反馈](https://github.com/Njryadmin/luci-app-openclaw/issues) · [B站](https://space.bilibili.com/59438380) · [博客](https://blog.910501.xyz/)'
 } > "${OUT_DIR}/${VER}.md"
 
 echo "✓ ${VER}.md ($(wc -l < "${OUT_DIR}/${VER}.md") 行)"

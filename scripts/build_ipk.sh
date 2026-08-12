@@ -106,12 +106,12 @@ cat > "$CTRL_DIR/control" << EOF
 Package: ${PKG_NAME}
 Version: ${PKG_VERSION}-${PKG_RELEASE}
 Depends: luci-compat, luci-base, curl, openssl-util, script-utils, tar, libstdcpp6
-Source: https://github.com/10000ge10000/luci-app-openclaw
+Source: https://github.com/Njryadmin/luci-app-openclaw
 SourceName: ${PKG_NAME}
 License: GPL-3.0
 Section: luci
 SourceDateEpoch: $(date +%s)
-Maintainer: 10000ge10000 <10000ge10000@users.noreply.github.com>
+Maintainer: Njryadmin <Njryadmin@users.noreply.github.com>
 Architecture: all
 Installed-Size: ${INSTALLED_SIZE}
 Description: OpenClaw AI 网关 LuCI 管理插件
