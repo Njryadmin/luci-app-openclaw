@@ -1212,9 +1212,62 @@ function action_backup()
 		install_path, install_path, install_path, install_path, install_path, install_path
 	)
 
-	-- 备份目录 (openclaw backup create 输出到 CWD，需要 cd)
-	local backup_dir = install_path .. "/data/.openclaw/backups"
-	local cd_prefix = "mkdir -p " .. backup_dir .. " && cd " .. backup_dir .. " && "
+	-- 默认备份目录 (openclaw backup create 输出到 CWD，需要 cd)
+	local default_backup_dir = install_path .. "/data/.openclaw/backups"
+
+	-- 解析自定义备份路径
+	-- 优先级: 请求参数 path > UCI openclaw.main.backup_dir > 默认
+	local requested_path = http.formvalue("path") or ""
+	local custom_path = ""
+	if requested_path ~= "" then
+		-- 校验路径安全性
+		if requested_path:sub(1, 1) ~= "/" then
+			http.prepare_content("application/json")
+			http.write_json({ status = "error", message = "备份目录必须是绝对路径" })
+			return
+		end
+		if requested_path:match("[%s'\"`$;&|<>(){}%[%]%*%?%!%#%~]") then
+			http.prepare_content("application/json")
+			http.write_json({ status = "error", message = "备份目录包含非法字符" })
+			return
+		end
+		-- 拒绝系统关键目录
+		local dangerous = { "proc", "sys", "dev", "usr", "etc", "bin", "sbin", "lib", "rom", "overlay" }
+		local is_dangerous = (requested_path == "/")
+		for _, name in ipairs(dangerous) do
+			if requested_path == "/" .. name or requested_path:match("^/" .. name .. "/") then
+				is_dangerous = true
+				break
+			end
+		end
+		if is_dangerous then
+			http.prepare_content("application/json")
+			http.write_json({ status = "error", message = "不允许的系统目录" })
+			return
+		end
+		custom_path = requested_path
+	else
+		-- 没有请求参数，尝试从 UCI 读取保存的自定义路径
+		local saved = uci:get("openclaw", "main", "backup_dir")
+		if saved and saved ~= "" and saved:sub(1, 1) == "/" then
+			custom_path = saved
+		end
+	end
+
+	-- 解析后的备份目录 (custom 为空时用默认)
+	local backup_dir = (custom_path ~= "" and custom_path) or default_backup_dir
+
+	-- 如果请求里带了自定义路径，持久化到 UCI (下回自动填)
+	-- 只在用户明确传入 path 时才写 UCI，避免覆盖之前的设置
+	if requested_path ~= "" and custom_path ~= "" then
+		local current = uci:get("openclaw", "main", "backup_dir") or ""
+		if current ~= custom_path then
+			uci:set("openclaw", "main", "backup_dir", custom_path)
+			uci:commit("openclaw")
+		end
+	end
+
+	local cd_prefix = "mkdir -p " .. shellquote(backup_dir) .. " && cd " .. shellquote(backup_dir) .. " && "
 
 	-- ── 辅助: 解析单个备份文件的 manifest 信息 ──
 	local function parse_backup_info(filepath)
@@ -1280,7 +1333,7 @@ function action_backup()
 		end
 		local output = sys.exec(backup_cmd)
 		-- 完整备份可能输出到 HOME，移动到 backup_dir
-		sys.exec("mv " .. install_path .. "/data/*-openclaw-backup.tar.gz " .. backup_dir .. "/ 2>/dev/null")
+		sys.exec("mv " .. install_path .. "/data/*-openclaw-backup.tar.gz " .. shellquote(backup_dir) .. "/ 2>/dev/null")
 		-- 提取备份文件路径
 		local backup_path = output:match("([%S]+%.tar%.gz)")
 		http.prepare_content("application/json")
@@ -1292,7 +1345,7 @@ function action_backup()
 		})
 	elseif action == "verify" then
 		-- 找到最新的备份文件
-		local latest = sys.exec("ls -t " .. backup_dir .. "/*-openclaw-backup.tar.gz 2>/dev/null | head -1"):gsub("%s+", "")
+		local latest = sys.exec("ls -t " .. shellquote(backup_dir) .. "/*-openclaw-backup.tar.gz 2>/dev/null | head -1"):gsub("%s+", "")
 		if latest == "" then
 			http.prepare_content("application/json")
 			http.write_json({ status = "error", message = "未找到备份文件，请先创建备份" })
@@ -1319,7 +1372,7 @@ function action_backup()
 		end
 		if restore_path == "" or not nixio.fs.stat(restore_path, "type") then
 			-- fallback 到最新
-			restore_path = sys.exec("ls -t " .. backup_dir .. "/*-openclaw-backup.tar.gz 2>/dev/null | head -1"):gsub("%s+", "")
+			restore_path = sys.exec("ls -t " .. shellquote(backup_dir) .. "/*-openclaw-backup.tar.gz 2>/dev/null | head -1"):gsub("%s+", "")
 		end
 		if restore_path == "" then
 			http.prepare_content("application/json")
@@ -1395,7 +1448,7 @@ function action_backup()
 		})
 	elseif action == "list" then
 		-- 返回结构化的备份文件列表(含类型/大小/时间)
-		local files_raw = sys.exec("ls -t " .. backup_dir .. "/*-openclaw-backup.tar.gz 2>/dev/null"):gsub("%s+$", "")
+		local files_raw = sys.exec("ls -t " .. shellquote(backup_dir) .. "/*-openclaw-backup.tar.gz 2>/dev/null"):gsub("%s+$", "")
 		local backups = {}
 		if files_raw ~= "" then
 			for fpath in files_raw:gmatch("[^\n]+") do
