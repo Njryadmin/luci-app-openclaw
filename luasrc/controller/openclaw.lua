@@ -307,7 +307,7 @@ end
 
 -- 读取 openclaw.json，解析失败返回 nil, error_code
 local function read_openclaw_config()
-	local install_path = get_install_path()
+	local install_path = get_path_info().oc_root
 	local config_file = install_path .. "/data/.openclaw/openclaw.json"
 	local f = io.open(config_file, "r")
 	if not f then return nil, "config_not_found" end
@@ -326,7 +326,7 @@ end
 
 -- 写 openclaw.json：自动备份 → 序列化 → 写入 → chown + 修权限
 local function write_openclaw_config(config)
-	local install_path = get_install_path()
+	local install_path = get_path_info().oc_root
 	local config_file = install_path .. "/data/.openclaw/openclaw.json"
 	local sys = require "luci.sys"
 
