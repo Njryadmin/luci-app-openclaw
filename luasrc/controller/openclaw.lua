@@ -301,6 +301,141 @@ local function wechat_python3_bootstrap_cmd(log_file)
 		"fi; "
 end
 
+-- ═══════════════════════════════════════════════════════════════════
+-- 模型供应商管理 helpers (供 action_models_* 复用)
+-- ═══════════════════════════════════════════════════════════════════
+
+-- 读取 openclaw.json，解析失败返回 nil, error_code
+local function read_openclaw_config()
+	local install_path = get_install_path()
+	local config_file = install_path .. "/data/.openclaw/openclaw.json"
+	local f = io.open(config_file, "r")
+	if not f then return nil, "config_not_found" end
+	local content = f:read("*a") or ""
+	f:close()
+
+	local ok, jsonc = pcall(require, "luci.jsonc")
+	if ok and jsonc and jsonc.parse then
+		local parse_ok, parsed = pcall(jsonc.parse, content)
+		if parse_ok and type(parsed) == "table" then
+			return parsed
+		end
+	end
+	return nil, "parse_failed"
+end
+
+-- 写 openclaw.json：自动备份 → 序列化 → 写入 → chown + 修权限
+local function write_openclaw_config(config)
+	local install_path = get_install_path()
+	local config_file = install_path .. "/data/.openclaw/openclaw.json"
+	local sys = require "luci.sys"
+
+	-- 备份: .bak-<unix_ts> 格式
+	local ts = os.time()
+	local backup_file = config_file .. ".bak-" .. ts
+	sys.exec("cp " .. shellquote(config_file) .. " " .. shellquote(backup_file) .. " 2>/dev/null")
+
+	-- 序列化 (要求 luci.jsonc 1.1+)
+	local ok, jsonc = pcall(require, "luci.jsonc")
+	if not (ok and jsonc and jsonc.stringify) then
+		return false, "jsonc_module_missing"
+	end
+	local content = jsonc.stringify(config)
+
+	-- 写入
+	local out = io.open(config_file, "w")
+	if not out then return false, "write_failed" end
+	out:write(content)
+	out:close()
+
+	-- 权限修复: chown + chmod 600
+	sys.exec("chown openclaw:openclaw " .. shellquote(config_file) .. " 2>/dev/null")
+	sys.exec("chmod 600 " .. shellquote(config_file) .. " 2>/dev/null")
+	if nixio.fs.stat("/usr/libexec/openclaw-permissions.sh", "type") then
+		sys.exec("/usr/libexec/openclaw-permissions.sh fix-state " .. shellquote(install_path .. "/data/.openclaw") .. " 2>/dev/null")
+	end
+
+	-- 通知运行中的 gateway 快速重载 (SIGUSR1 in-process restart, ~1-2s)
+	-- 异步执行: 用子 shell + & 后台跑，不阻塞 HTTP 响应
+	-- 安全性: restart_gateway 内部有 lock_dir 保护，并发调用安全；不重启 PTY
+	-- 兜底: init.d 不存在时不触发 (例如纯 LuCI 端调试环境)
+	if nixio.fs.stat("/etc/init.d/openclaw", "type") then
+		sys.exec("( /etc/init.d/openclaw restart_gateway >/dev/null 2>&1 & )")
+	end
+
+	return true, nil
+end
+
+-- 脱敏 API key: 头 4 + "••••" + 尾 4
+local function mask_api_key(key)
+	if not key or key == "" then return "" end
+	if #key < 12 then return "****" end
+	return key:sub(1, 4) .. "••••" .. key:sub(-4)
+end
+
+-- 5s TCP/HTTP 连通性预检
+local function test_connectivity(base_url)
+	local sys = require "luci.sys"
+	local cmd = string.format(
+		"curl -sI --connect-timeout 5 --max-time 8 -o /dev/null -w '%%{http_code}' %s 2>/dev/null",
+		shellquote(base_url)
+	)
+	local resp = sys.exec(cmd):gsub("%s+", "")
+	return (resp:match("^%d+$") and tonumber(resp)) or 0
+end
+
+-- API key 探活: OpenAI 兼容走 /v1/models，Anthropic 走 /v1 messages 最小 payload
+local function test_provider_api(base_url, api_key, api_type)
+	local sys = require "luci.sys"
+	local clean_base = (base_url or ""):gsub("/+$", "")
+	local endpoint, cmd
+	if api_type == "anthropic-messages" then
+		endpoint = clean_base .. "/v1/messages"
+		cmd = string.format(
+			"curl -s --connect-timeout 5 --max-time 15 -w '\\nHTTP_CODE=%%{http_code}' " ..
+			"-X POST -H 'x-api-key: %s' -H 'anthropic-version: 2023-06-01' -H 'content-type: application/json' " ..
+			"-d '{\"model\":\"claude-3-5-haiku-20241022\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}' " ..
+			"%s 2>/dev/null",
+			api_key or "", shellquote(endpoint)
+		)
+	else
+		endpoint = clean_base .. "/v1/models"
+		cmd = string.format(
+			"curl -s --connect-timeout 5 --max-time 15 -w '\\nHTTP_CODE=%%{http_code}' " ..
+			"-H 'Authorization: Bearer %s' %s 2>/dev/null",
+			api_key or "", shellquote(endpoint)
+		)
+	end
+	local resp = sys.exec(cmd)
+	local code = resp and resp:match("HTTP_CODE=(%d+)")
+	return (code and tonumber(code)) or 0, resp
+end
+
+-- 预设供应商列表（国内优先，按"开发环境在国内"调整顺序）
+-- 新增: 任何时候加新预设只要在这表里加一行即可
+local MODEL_PROVIDER_PRESETS = {
+	-- 国内
+	{ id = "qwen",         name = "阿里云通义千问",         baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1", api = "openai-completions" },
+	{ id = "bailian",      name = "阿里云百炼 Coding Plan", baseUrl = "https://coding.dashscope.aliyuncs.com/v1",           api = "openai-completions" },
+	{ id = "lkeap",        name = "腾讯云 Coding Plan",      baseUrl = "https://api.lkeap.cloud.tencent.com/coding/v3",      api = "openai-completions" },
+	{ id = "siliconflow",  name = "硅基流动 SiliconFlow",   baseUrl = "https://api.siliconflow.cn/v1",                        api = "openai-completions" },
+	{ id = "baidu",        name = "百度千帆",                baseUrl = "https://qianfan.baidubce.com/v2",                      api = "openai-completions" },
+	{ id = "zhipu",        name = "智谱 GLM / Z.AI",        baseUrl = "https://open.bigmodel.cn/api/paas/v4",                api = "openai-completions" },
+	{ id = "yiwanai-fan",  name = "一万AI分享 粉丝专享",     baseUrl = "https://api.yiwanai.example/v1",                     api = "openai-completions" },
+	-- 国外
+	{ id = "openai",       name = "OpenAI",                 baseUrl = "https://api.openai.com/v1",                            api = "openai-completions" },
+	{ id = "anthropic",    name = "Anthropic",              baseUrl = "https://api.anthropic.com",                            api = "anthropic-messages" },
+	{ id = "google",       name = "Google Gemini",          baseUrl = "https://generativelanguage.googleapis.com/v1beta",    api = "openai-completions" },
+	{ id = "openrouter",   name = "OpenRouter",             baseUrl = "https://openrouter.ai/api/v1",                        api = "openai-completions" },
+	{ id = "copilot",      name = "GitHub Copilot",         baseUrl = "https://api.githubcopilot.com",                       api = "openai-completions" },
+	{ id = "xai",          name = "xAI Grok",               baseUrl = "https://api.x.ai/v1",                                  api = "openai-completions" },
+	-- 本地
+	{ id = "ollama",       name = "Ollama (本地)",          baseUrl = "http://127.0.0.1:11434/v1",                            api = "openai-completions" },
+	-- 自定义
+	{ id = "custom",       name = "自定义 OpenAI 兼容",      baseUrl = "",                                                    api = "openai-completions" },
+	{ id = "custom-anthropic", name = "自定义 Anthropic 兼容", baseUrl = "",                                                api = "anthropic-messages" },
+}
+
 function index()
 	-- 主入口: 服务 → OpenClaw (🧠 作为菜单图标)
 	local page = entry({"admin", "services", "openclaw"}, alias("admin", "services", "openclaw", "basic"), _("OpenClaw"), 90)
@@ -374,6 +509,14 @@ function index()
 
         -- 微信退出/删除账号 API
         entry({"admin", "services", "openclaw", "wechat_logout"}, post("action_wechat_logout"), nil).leaf = true
+
+	-- 模型管理 (可视化供应商配置 — v2.2.0)
+	entry({"admin", "services", "openclaw", "models"}, call("action_models"), _("模型管理"), 11).leaf = true
+	entry({"admin", "services", "openclaw", "models_api"}, call("action_models_api"), nil).leaf = true
+	entry({"admin", "services", "openclaw", "models_save"}, post("action_models_save"), nil).leaf = true
+	entry({"admin", "services", "openclaw", "models_delete"}, post("action_models_delete"), nil).leaf = true
+	entry({"admin", "services", "openclaw", "models_test"}, post("action_models_test"), nil).leaf = true
+	entry({"admin", "services", "openclaw", "models_set_active"}, post("action_models_set_active"), nil).leaf = true
 end-- ═══════════════════════════════════════════
 -- 获取安装路径 (唯一权威来源: UCI 配置)
 -- ═══════════════════════════════════════════
@@ -2159,4 +2302,302 @@ function action_wechat_logout()
 
         http.prepare_content("application/json")
         http.write_json({ status = "ok", message = "已下线账号: " .. account_id })
+end
+
+-- ═══════════════════════════════════════════════════════════════════
+-- 模型供应商管理 (v2.2.0)
+-- 替代 Web PTY 配置模型的方式: 列表 + 添加 + 测试 + 切活跃 + 删除
+-- ═══════════════════════════════════════════════════════════════════
+
+function action_models()
+	local http = require "luci.http"
+	local config, err = read_openclaw_config()
+
+	http.prepare_content("text/html; charset=utf-8")
+	if not config and err == "config_not_found" then
+		-- 没装 OpenClaw 时直接展示友好提示
+		luci.template.render("openclaw/models", { 
+			providers = {}, 
+			active_model = nil, 
+			presets = MODEL_PROVIDER_PRESETS,
+			installed = false
+		})
+		return
+	end
+	-- 即便解析失败也渲染，让页面展示错误
+	luci.template.render("openclaw/models", { 
+		providers = (config and config.models and config.models.providers) or {},
+		active_model = (config and config.agents and config.agents.defaults 
+		                and config.agents.defaults.model and config.agents.defaults.model.primary) or nil,
+		presets = MODEL_PROVIDER_PRESETS,
+		installed = (config ~= nil),
+	})
+end
+
+-- 列出已配置供应商（API 密钥脱敏）供前端 XHR 拉取
+function action_models_api()
+	local http = require "luci.http"
+	local config, err = read_openclaw_config()
+	if not config then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = err, providers = {}, active_model = nil })
+		return
+	end
+
+	local providers_out = {}
+	local providers = (config.models and config.models.providers) or {}
+	for name, prov in pairs(providers) do
+		providers_out[#providers_out + 1] = {
+			name = name,
+			baseUrl = prov.baseUrl or "",
+			api = prov.api or "openai-completions",
+			apiKeyMasked = mask_api_key(prov.apiKey),
+			apiKeySet = (prov.apiKey and prov.apiKey ~= "") and true or false,
+			models = prov.models or {},
+		}
+	end
+	-- 按 provider 名字排序，保证稳定输出
+	table.sort(providers_out, function(a, b) return a.name < b.name end)
+
+	local active = (config.agents and config.agents.defaults 
+	               and config.agents.defaults.model and config.agents.defaults.model.primary) or nil
+
+	http.prepare_content("application/json")
+	http.write_json({
+		status = "ok",
+		active_model = active,
+		providers = providers_out,
+	})
+end
+
+-- 创建或更新 provider (一个 provider 配一个默认模型)
+function action_models_save()
+	local http = require "luci.http"
+	local provider_name = http.formvalue("provider") or ""
+	local base_url      = http.formvalue("baseUrl") or ""
+	local api_key       = http.formvalue("apiKey") or ""
+	local api_type      = http.formvalue("api") or "openai-completions"
+	local model_id      = http.formvalue("modelId") or ""
+	local model_name    = http.formvalue("modelName") or model_id
+	local ctx_window    = tonumber(http.formvalue("contextWindow")) or 128000
+	local max_tokens    = tonumber(http.formvalue("maxTokens")) or 4096
+
+	-- 校验
+	if provider_name == "" then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = "missing_provider" })
+		return
+	end
+	if not provider_name:match("^[%w][%w%-_%.]*$") then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = "invalid_provider_name" })
+		return
+	end
+	if base_url == "" or not base_url:match("^https?://") then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = "invalid_baseUrl" })
+		return
+	end
+	if model_id == "" or not model_id:match("^[%w][%w%-_%.]*$") then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = "invalid_modelId" })
+		return
+	end
+	if api_type ~= "openai-completions" and api_type ~= "anthropic-messages" then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = "invalid_api_type" })
+		return
+	end
+
+	local config, err = read_openclaw_config()
+	if not config then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = err })
+		return
+	end
+
+	-- 初始化路径 (避免空表 nil)
+	if not config.models then config.models = { mode = "merge" } end
+	if not config.models.providers then config.models.providers = {} end
+	if not config.agents then config.agents = { defaults = {} } end
+	if not config.agents.defaults then config.agents.defaults = {} end
+	if not config.agents.defaults.models then config.agents.defaults.models = {} end
+	if not config.agents.defaults.model then config.agents.defaults.model = {} end
+
+	-- 写 provider (同 provider 已有则覆盖)
+	config.models.providers[provider_name] = {
+		baseUrl = base_url,
+		api = api_type,
+		apiKey = api_key,
+		models = {{
+			id = model_id,
+			name = model_name,
+			reasoning = false,
+			input = { "text" },
+			cost = { input = 0, output = 0, cacheRead = 0, cacheWrite = 0 },
+			contextWindow = ctx_window,
+			maxTokens = max_tokens,
+		}},
+	}
+
+	-- 注册 model id (形式: provider_name/model_id)
+	local full_model_id = provider_name .. "/" .. model_id
+	config.agents.defaults.models[full_model_id] = {}
+
+	-- 如果当前没有活跃模型，自动设这个
+	if not config.agents.defaults.model.primary or config.agents.defaults.model.primary == "" then
+		config.agents.defaults.model.primary = full_model_id
+	end
+
+	local ok, write_err = write_openclaw_config(config)
+	if not ok then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = write_err })
+		return
+	end
+
+	http.prepare_content("application/json")
+	http.write_json({ status = "ok", model_id = full_model_id })
+end
+
+-- 删除 provider (连带 agents.defaults.models 里以这个 provider 开头的 model id)
+function action_models_delete()
+	local http = require "luci.http"
+	local provider_name = http.formvalue("provider") or ""
+
+	if provider_name == "" or not provider_name:match("^[%w][%w%-_%.]*$") then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = "invalid_provider" })
+		return
+	end
+
+	local config, err = read_openclaw_config()
+	if not config then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = err })
+		return
+	end
+
+	-- 检查活跃模型是否来自这个 provider
+	local active = (config.agents and config.agents.defaults
+	               and config.agents.defaults.model and config.agents.defaults.model.primary) or ""
+	local active_provider = active:match("^([^/]+)/")
+	if active_provider == provider_name then
+		http.prepare_content("application/json")
+		http.write_json({
+			status = "error",
+			error = "provider_is_active",
+			message = "该供应商包含活跃模型 '" .. active .. "'，请先切换活跃模型再删除",
+		})
+		return
+	end
+
+	-- 移除 provider
+	if config.models and config.models.providers then
+		config.models.providers[provider_name] = nil
+	end
+
+	-- 移除关联的 model id
+	if config.agents and config.agents.defaults and config.agents.defaults.models then
+		for k, _ in pairs(config.agents.defaults.models) do
+			if k:sub(1, #provider_name + 1) == provider_name .. "/" then
+				config.agents.defaults.models[k] = nil
+			end
+		end
+	end
+
+	local ok, write_err = write_openclaw_config(config)
+	if not ok then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = write_err })
+		return
+	end
+
+	http.prepare_content("application/json")
+	http.write_json({ status = "ok" })
+end
+
+-- 测试连接: 5s 预检 + API 探活
+function action_models_test()
+	local http = require "luci.http"
+	local base_url = http.formvalue("baseUrl") or ""
+	local api_key  = http.formvalue("apiKey") or ""
+	local api_type = http.formvalue("api") or "openai-completions"
+
+	if base_url == "" or not base_url:match("^https?://") then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = "invalid_baseUrl" })
+		return
+	end
+
+	-- 1. 5s 连通性预检
+	local conn = test_connectivity(base_url)
+	if conn == 0 then
+		http.prepare_content("application/json")
+		http.write_json({
+			status = "error",
+			error = "network_unreachable",
+			message = "无法连接 " .. base_url .. " (5s 预检失败)",
+		})
+		return
+	end
+
+	-- 2. API 探活
+	local code, _ = test_provider_api(base_url, api_key, api_type)
+	local ok = code >= 200 and code < 400
+	http.prepare_content("application/json")
+	http.write_json({
+		status = ok and "ok" or "error",
+		http_code = code,
+		connectivity = conn,
+		message = ok and ("探活成功 (HTTP " .. code .. ")")
+		           or ("探活失败 (HTTP " .. code .. ")"),
+	})
+end
+
+-- 设置活跃模型
+function action_models_set_active()
+	local http = require "luci.http"
+	local model_id = http.formvalue("modelId") or ""
+
+	if model_id == "" or not model_id:match("^[%w][%w%-_%.%/]*$") then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = "invalid_modelId" })
+		return
+	end
+
+	local config, err = read_openclaw_config()
+	if not config then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = err })
+		return
+	end
+
+	-- 必须已注册
+	local registered = (config.agents and config.agents.defaults
+	                    and config.agents.defaults.models) or {}
+	if not registered[model_id] then
+		http.prepare_content("application/json")
+		http.write_json({
+			status = "error",
+			error = "model_not_registered",
+			message = "模型 " .. model_id .. " 未注册，请先添加",
+		})
+		return
+	end
+
+	if not config.agents then config.agents = {} end
+	if not config.agents.defaults then config.agents.defaults = {} end
+	if not config.agents.defaults.model then config.agents.defaults.model = {} end
+	config.agents.defaults.model.primary = model_id
+
+	local ok, write_err = write_openclaw_config(config)
+	if not ok then
+		http.prepare_content("application/json")
+		http.write_json({ status = "error", error = write_err })
+		return
+	end
+
+	http.prepare_content("application/json")
+	http.write_json({ status = "ok", model_id = model_id })
 end

@@ -1,0 +1,932 @@
+<%#
+ luci-app-openclaw — 模型供应商管理 (v2.2.0)
+ 替代 Web PTY 配置模型的方式: 列表 + 添加/编辑 + 测试 + 切活跃 + 删除
+ 国内优先: 预设列表按国内 → 国外 → 本地 → 自定义 排序
+-%>
+<%+header%>
+
+<%
+-- 服务端渲染: 列表、活跃模型、预设、是否已安装
+local providers    = providers or {}
+local active_model = active_model
+local presets      = presets or {}
+local installed    = installed
+%>
+
+<style type="text/css">
+.oc-models-page {
+	max-width: 1100px;
+	margin: 0 auto;
+}
+
+.oc-models-header {
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 16px;
+	flex-wrap: wrap;
+}
+.oc-models-header h2 {
+	font-size: 18px;
+	font-weight: 600;
+	color: #333;
+	margin: 0 0 6px 0;
+}
+.oc-models-header p {
+	font-size: 13px;
+	color: #666;
+	margin: 0;
+	line-height: 1.6;
+}
+.oc-models-header .oc-add-btn {
+	padding: 8px 18px;
+	background: #1a7f37;
+	color: #fff;
+	border: none;
+	border-radius: 6px;
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+	white-space: nowrap;
+}
+.oc-models-header .oc-add-btn:hover { background: #166a2d; }
+.oc-models-header .oc-add-btn:disabled {
+	background: #999;
+	cursor: not-allowed;
+}
+
+.oc-not-installed {
+	padding: 24px;
+	background: #fff8c5;
+	border: 1px solid #d4a72c;
+	border-radius: 8px;
+	color: #9a6700;
+	font-size: 14px;
+	text-align: center;
+}
+.oc-not-installed code {
+	background: rgba(0,0,0,0.06);
+	padding: 1px 6px;
+	border-radius: 3px;
+	font-family: monospace;
+}
+
+.oc-active-banner {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 12px 16px;
+	margin-bottom: 16px;
+	background: linear-gradient(135deg, #e8f5e9, #f1f8e9);
+	border: 1px solid #c5e1a5;
+	border-radius: 8px;
+	font-size: 13px;
+}
+.oc-active-banner .oc-active-label {
+	color: #2e7d32;
+	font-weight: 600;
+	white-space: nowrap;
+}
+.oc-active-banner code {
+	background: rgba(0,0,0,0.06);
+	padding: 2px 8px;
+	border-radius: 4px;
+	font-family: monospace;
+	font-size: 12px;
+	color: #333;
+}
+.oc-active-banner .oc-active-none {
+	color: #cf222e;
+	font-weight: 500;
+}
+
+.oc-provider-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+	gap: 14px;
+	margin-bottom: 24px;
+}
+
+.oc-provider-card {
+	background: #fff;
+	border: 1px solid #e0e0e0;
+	border-radius: 8px;
+	overflow: hidden;
+	box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+	display: flex;
+	flex-direction: column;
+}
+.oc-provider-card.is-active {
+	border-color: #1a7f37;
+	box-shadow: 0 2px 8px rgba(26,127,55,0.15);
+}
+.oc-provider-card .oc-card-head {
+	padding: 12px 14px;
+	background: #f6f8fa;
+	border-bottom: 1px solid #eaeaea;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+.oc-provider-card .oc-card-name {
+	font-size: 14px;
+	font-weight: 600;
+	color: #1f2937;
+	word-break: break-all;
+}
+.oc-provider-card .oc-active-badge {
+	display: inline-block;
+	padding: 1px 8px;
+	background: #1a7f37;
+	color: #fff;
+	font-size: 11px;
+	font-weight: 600;
+	border-radius: 10px;
+	white-space: nowrap;
+}
+.oc-provider-card .oc-card-body {
+	padding: 12px 14px;
+	flex: 1;
+	font-size: 12px;
+	color: #555;
+}
+.oc-provider-card .oc-card-row {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 6px;
+	line-height: 1.5;
+	word-break: break-all;
+}
+.oc-provider-card .oc-card-row .oc-row-label {
+	color: #888;
+	flex-shrink: 0;
+	min-width: 56px;
+}
+.oc-provider-card .oc-card-row .oc-row-value {
+	color: #333;
+	font-family: monospace;
+}
+.oc-provider-card .oc-card-row code {
+	background: #f0f3f6;
+	padding: 1px 6px;
+	border-radius: 3px;
+	font-size: 11px;
+}
+.oc-provider-card .oc-card-models {
+	margin-top: 8px;
+	padding-top: 8px;
+	border-top: 1px dashed #e0e0e0;
+}
+.oc-provider-card .oc-card-model-id {
+	display: inline-block;
+	padding: 2px 8px;
+	margin: 2px 4px 2px 0;
+	background: #eef2ff;
+	color: #4338ca;
+	border-radius: 10px;
+	font-size: 11px;
+	font-family: monospace;
+}
+.oc-provider-card .oc-card-foot {
+	display: flex;
+	gap: 6px;
+	padding: 8px 12px;
+	background: #fafbfc;
+	border-top: 1px solid #eaeaea;
+	flex-wrap: wrap;
+}
+.oc-provider-card .oc-card-foot button {
+	flex: 1;
+	min-width: 60px;
+	padding: 5px 8px;
+	background: #fff;
+	border: 1px solid #d0d7de;
+	border-radius: 4px;
+	font-size: 12px;
+	color: #333;
+	cursor: pointer;
+	white-space: nowrap;
+}
+.oc-provider-card .oc-card-foot button:hover { background: #f0f3f6; }
+.oc-provider-card .oc-card-foot .oc-btn-danger { color: #cf222e; border-color: #f1c0c4; }
+.oc-provider-card .oc-card-foot .oc-btn-danger:hover { background: #ffeef0; }
+.oc-provider-card .oc-card-foot .oc-btn-primary { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+.oc-provider-card .oc-card-foot .oc-btn-primary:hover { background: #357abd; border-color: #357abd; }
+.oc-provider-card .oc-card-foot button:disabled {
+	background: #f0f0f0;
+	color: #999;
+	cursor: not-allowed;
+	border-color: #e0e0e0;
+}
+
+.oc-empty {
+	grid-column: 1 / -1;
+	padding: 40px 20px;
+	text-align: center;
+	color: #888;
+	background: #fafbfc;
+	border: 2px dashed #e0e0e0;
+	border-radius: 8px;
+	font-size: 13px;
+}
+.oc-empty p { margin: 6px 0; }
+
+/* ── Modal ── */
+.oc-modal-mask {
+	display: none;
+	position: fixed;
+	left: 0; top: 0; right: 0; bottom: 0;
+	background: rgba(0,0,0,0.4);
+	z-index: 9000;
+	align-items: center;
+	justify-content: center;
+}
+.oc-modal-mask.show { display: flex; }
+.oc-modal {
+	background: #fff;
+	border-radius: 8px;
+	width: 560px;
+	max-width: 92vw;
+	max-height: 90vh;
+	overflow-y: auto;
+	box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+.oc-modal-head {
+	padding: 14px 18px;
+	background: #f6f8fa;
+	border-bottom: 1px solid #eaeaea;
+	border-radius: 8px 8px 0 0;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.oc-modal-head h3 {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 600;
+	color: #1f2937;
+}
+.oc-modal-head .oc-modal-close {
+	background: none;
+	border: none;
+	font-size: 20px;
+	color: #888;
+	cursor: pointer;
+	padding: 0 4px;
+	line-height: 1;
+}
+.oc-modal-head .oc-modal-close:hover { color: #333; }
+.oc-modal-body { padding: 16px 18px; }
+.oc-modal-foot {
+	padding: 12px 18px;
+	background: #fafbfc;
+	border-top: 1px solid #eaeaea;
+	border-radius: 0 0 8px 8px;
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+.oc-modal-foot button {
+	padding: 7px 18px;
+	background: #fff;
+	border: 1px solid #d0d7de;
+	border-radius: 4px;
+	font-size: 13px;
+	cursor: pointer;
+}
+.oc-modal-foot .oc-btn-cancel:hover { background: #f0f3f6; }
+.oc-modal-foot .oc-btn-save {
+	background: #1a7f37;
+	color: #fff;
+	border-color: #1a7f37;
+}
+.oc-modal-foot .oc-btn-save:hover { background: #166a2d; }
+.oc-modal-foot .oc-btn-save:disabled {
+	background: #999;
+	border-color: #999;
+	cursor: not-allowed;
+}
+
+.oc-form-row {
+	margin-bottom: 14px;
+}
+.oc-form-row label {
+	display: block;
+	font-size: 12px;
+	font-weight: 600;
+	color: #555;
+	margin-bottom: 4px;
+}
+.oc-form-row label .oc-required { color: #cf222e; }
+.oc-form-row input[type="text"],
+.oc-form-row input[type="password"],
+.oc-form-row input[type="number"],
+.oc-form-row select {
+	width: 100%;
+	padding: 7px 10px;
+	border: 1px solid #d0d7de;
+	border-radius: 4px;
+	font-size: 13px;
+	box-sizing: border-box;
+	background: #fff;
+	color: #333;
+}
+.oc-form-row input:focus,
+.oc-form-row select:focus {
+	outline: none;
+	border-color: #4a90d9;
+	box-shadow: 0 0 0 2px rgba(74,144,217,0.15);
+}
+.oc-form-row .oc-hint {
+	margin-top: 4px;
+	font-size: 11px;
+	color: #888;
+	line-height: 1.5;
+}
+.oc-form-row .oc-hint code {
+	background: #f0f3f6;
+	padding: 1px 5px;
+	border-radius: 3px;
+	font-family: monospace;
+	font-size: 11px;
+}
+
+/* ── Toast ── */
+.oc-toast {
+	position: fixed;
+	top: 20px;
+	left: 50%;
+	transform: translateX(-50%);
+	padding: 10px 20px;
+	background: rgba(0,0,0,0.85);
+	color: #fff;
+	border-radius: 6px;
+	font-size: 13px;
+	z-index: 9999;
+	box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+	max-width: 80vw;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 0.2s;
+}
+.oc-toast.show { opacity: 1; }
+.oc-toast.ok { background: rgba(26,127,55,0.95); }
+.oc-toast.err { background: rgba(207,34,46,0.95); }
+
+.oc-loading {
+	display: inline-block;
+	width: 12px; height: 12px;
+	border: 2px solid #ccc;
+	border-top-color: #4a90d9;
+	border-radius: 50%;
+	animation: oc-spin 0.8s linear infinite;
+	vertical-align: middle;
+	margin-right: 4px;
+}
+@keyframes oc-spin { to { transform: rotate(360deg); } }
+</style>
+
+<div class="oc-models-page">
+
+	<div class="oc-models-header">
+		<div>
+			<h2>🧠 模型供应商管理</h2>
+			<p>管理 OpenClaw 的模型供应商和活跃模型。国内预设优先，可一键测试连接；变更自动备份到 <code>openclaw.json.bak-&lt;时间戳&gt;</code>。</p>
+		</div>
+		<button class="oc-add-btn" id="oc-btn-add" <% if not installed then %>disabled<% end %>>+ 添加供应商</button>
+	</div>
+
+	<% if not installed then %>
+	<div class="oc-not-installed">
+		⚠️ 未检测到 <code>openclaw.json</code>，请先到 <strong>基本设置</strong> 完成首次安装。
+	</div>
+	<% else %>
+
+	<div class="oc-active-banner">
+		<span class="oc-active-label">当前活跃模型:</span>
+		<% if active_model and active_model ~= "" then %>
+		<code id="oc-active-model"><%=active_model%></code>
+		<% else %>
+		<span class="oc-active-none" id="oc-active-model">未配置 — 添加供应商后将自动设为活跃</span>
+		<% end %>
+	</div>
+
+	<div class="oc-provider-grid" id="oc-provider-grid">
+		<% if not providers or next(providers) == nil then %>
+		<div class="oc-empty">
+			<p style="font-size:14px;color:#555;">还没有配置任何模型供应商</p>
+			<p>点击右上角 <strong>+ 添加供应商</strong> 开始。国内优先选择 <em>阿里云百炼 / 硅基流动 / 智谱 GLM</em> 等可达性较好的服务。</p>
+		</div>
+		<% else %>
+		<%
+		-- 按名字排序保证稳定输出
+		local names = {}
+		for k in pairs(providers) do names[#names+1] = k end
+		table.sort(names)
+		for _, pname in ipairs(names) do
+			local prov = providers[pname]
+			local model_list = prov.models or {}
+			local first_model = model_list[1]
+		%>
+		<div class="oc-provider-card<% if active_model and active_model:match('^' .. pname:gsub('-', '%%-') .. '/') then %> is-active<% end %>" data-provider="<%=pname%>">
+			<div class="oc-card-head">
+				<span class="oc-card-name"><%=pname%></span>
+				<% if active_model and active_model:match('^' .. pname:gsub('-', '%%-') .. '/') then %>
+				<span class="oc-active-badge">活跃</span>
+				<% end %>
+			</div>
+			<div class="oc-card-body">
+				<div class="oc-card-row">
+					<span class="oc-row-label">API:</span>
+					<span class="oc-row-value"><%=prov.api or "openai-completions"%></span>
+				</div>
+				<div class="oc-card-row">
+					<span class="oc-row-label">URL:</span>
+					<span class="oc-row-value"><%=prov.baseUrl or ""%></span>
+				</div>
+				<% if first_model then %>
+				<div class="oc-card-models">
+					<% for _, m in ipairs(model_list) do %>
+					<span class="oc-card-model-id"><%=m.id or m.name or "?"%></span>
+					<% end %>
+				</div>
+				<% end %>
+			</div>
+			<div class="oc-card-foot">
+				<button class="oc-btn-test" data-provider="<%=pname%>">🔌 测试</button>
+				<button class="oc-btn-edit" data-provider="<%=pname%>">✏️ 编辑</button>
+				<% if not (active_model and active_model:match('^' .. pname:gsub('-', '%%-') .. '/')) then %>
+				<button class="oc-btn-set-active oc-btn-primary" data-modelid="<%=pname%>/<%=first_model and first_model.id or ""%>">★ 设为活跃</button>
+				<button class="oc-btn-delete oc-btn-danger" data-provider="<%=pname%>">🗑 删除</button>
+				<% end %>
+			</div>
+		</div>
+		<%
+		end
+		end
+		%>
+	</div>
+
+	<% end %><!-- installed -->
+
+</div>
+
+<!-- Modal -->
+<div class="oc-modal-mask" id="oc-modal-mask">
+	<div class="oc-modal">
+		<div class="oc-modal-head">
+			<h3 id="oc-modal-title">添加模型供应商</h3>
+			<button class="oc-modal-close" id="oc-modal-close" type="button">×</button>
+		</div>
+		<div class="oc-modal-body">
+			<input type="hidden" id="oc-f-mode" value="add" />
+			<input type="hidden" id="oc-f-original-name" value="" />
+
+			<div class="oc-form-row">
+				<label>预设 <span class="oc-required">*</span></label>
+				<select id="oc-f-preset">
+					<optgroup label="── 国内 ──">
+					<% for _, p in ipairs(presets) do
+						if p.id == "qwen" or p.id == "bailian" or p.id == "lkeap" or p.id == "siliconflow" or p.id == "baidu" or p.id == "zhipu" or p.id == "yiwanai-fan" then %>
+					<option value="<%=p.id%>" data-baseurl="<%=p.baseUrl%>" data-api="<%=p.api%>"><%=p.name%></option>
+					<% end end %>
+					</optgroup>
+					<optgroup label="── 国外 ──">
+					<% for _, p in ipairs(presets) do
+						if p.id == "openai" or p.id == "anthropic" or p.id == "google" or p.id == "openrouter" or p.id == "copilot" or p.id == "xai" then %>
+					<option value="<%=p.id%>" data-baseurl="<%=p.baseUrl%>" data-api="<%=p.api%>"><%=p.name%></option>
+					<% end end %>
+					</optgroup>
+					<optgroup label="── 本地 ──">
+					<% for _, p in ipairs(presets) do
+						if p.id == "ollama" then %>
+					<option value="<%=p.id%>" data-baseurl="<%=p.baseUrl%>" data-api="<%=p.api%>"><%=p.name%></option>
+					<% end end %>
+					</optgroup>
+					<optgroup label="── 自定义 ──">
+					<% for _, p in ipairs(presets) do
+						if p.id == "custom" or p.id == "custom-anthropic" then %>
+					<option value="<%=p.id%>" data-baseurl="<%=p.baseUrl%>" data-api="<%=p.api%>"><%=p.name%></option>
+					<% end end %>
+					</optgroup>
+				</select>
+				<div class="oc-hint">选择预设会自动填入 baseUrl 和 API 类型。</div>
+			</div>
+
+			<div class="oc-form-row">
+				<label>供应商 ID (provider) <span class="oc-required">*</span></label>
+				<input type="text" id="oc-f-provider" placeholder="例如: qwen / siliconflow / my-proxy" />
+				<div class="oc-hint">字母开头，可含字母/数字/横线/下划线/点；保存后不可改 ID（需删除重建）。</div>
+			</div>
+
+			<div class="oc-form-row">
+				<label>API 类型</label>
+				<select id="oc-f-api">
+					<option value="openai-completions">OpenAI 兼容 (推荐)</option>
+					<option value="anthropic-messages">Anthropic Messages</option>
+				</select>
+			</div>
+
+			<div class="oc-form-row">
+				<label>Base URL <span class="oc-required">*</span></label>
+				<input type="text" id="oc-f-baseurl" placeholder="例如: https://api.openai.com/v1" />
+			</div>
+
+			<div class="oc-form-row">
+				<label>API Key <span class="oc-required">*</span></label>
+				<input type="password" id="oc-f-apikey" placeholder="sk-..." />
+				<div class="oc-hint">密钥会原样写入 <code>openclaw.json</code> 并自动 <code>chmod 600</code>。</div>
+			</div>
+
+			<div class="oc-form-row">
+				<label>默认模型 ID <span class="oc-required">*</span></label>
+				<input type="text" id="oc-f-modelid" placeholder="例如: qwen-plus / gpt-4o-mini / claude-3-5-sonnet" />
+			</div>
+
+			<div style="display:flex; gap:14px;">
+				<div class="oc-form-row" style="flex:1;">
+					<label>Context Window</label>
+					<input type="number" id="oc-f-ctx" value="128000" min="1024" />
+				</div>
+				<div class="oc-form-row" style="flex:1;">
+					<label>Max Tokens</label>
+					<input type="number" id="oc-f-maxtok" value="4096" min="64" />
+				</div>
+			</div>
+
+			<div style="padding:8px 0;">
+				<button type="button" id="oc-btn-test-modal" style="padding:6px 14px;background:#fff;border:1px solid #d0d7de;border-radius:4px;cursor:pointer;font-size:12px;">🔌 测试连接</button>
+				<span id="oc-test-result" style="margin-left:8px;font-size:12px;"></span>
+			</div>
+		</div>
+		<div class="oc-modal-foot">
+			<button class="oc-btn-cancel" id="oc-modal-cancel" type="button">取消</button>
+			<button class="oc-btn-save" id="oc-modal-save" type="button">保存</button>
+		</div>
+	</div>
+</div>
+
+<div class="oc-toast" id="oc-toast"></div>
+
+<script type="text/javascript">
+//<![CDATA[
+(function() {
+	var apiListUrl     = '<%=luci.dispatcher.build_url("admin", "services", "openclaw", "models_api")%>';
+	var saveUrl        = '<%=luci.dispatcher.build_url("admin", "services", "openclaw", "models_save")%>';
+	var deleteUrl      = '<%=luci.dispatcher.build_url("admin", "services", "openclaw", "models_delete")%>';
+	var testUrl        = '<%=luci.dispatcher.build_url("admin", "services", "openclaw", "models_test")%>';
+	var setActiveUrl   = '<%=luci.dispatcher.build_url("admin", "services", "openclaw", "models_set_active")%>';
+
+	var toastEl = document.getElementById('oc-toast');
+	function toast(msg, kind) {
+		toastEl.textContent = msg;
+		toastEl.className = 'oc-toast show ' + (kind || '');
+		setTimeout(function() { toastEl.className = 'oc-toast'; }, 3000);
+	}
+	function escapeHtml(s) {
+		return String(s == null ? '' : s)
+			.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+	}
+
+	// ── 加载/刷新供应商列表 ─────────────────────────────
+	function loadList() {
+		(new XHR()).get(apiListUrl, null, function(x) {
+			try {
+				var d = JSON.parse(x.responseText);
+				if (d.status !== 'ok') {
+					toast('加载失败: ' + (d.error || 'unknown'), 'err');
+					return;
+				}
+				renderList(d.providers || [], d.active_model || null);
+			} catch (e) {
+				toast('解析失败: ' + e.message, 'err');
+			}
+		});
+	}
+
+	function renderList(providers, activeModel) {
+		var grid = document.getElementById('oc-provider-grid');
+		if (!providers.length) {
+			grid.innerHTML = '<div class="oc-empty">' +
+				'<p style="font-size:14px;color:#555;">还没有配置任何模型供应商</p>' +
+				'<p>点击右上角 <strong>+ 添加供应商</strong> 开始。</p></div>';
+			updateActiveBanner(null);
+			return;
+		}
+		providers.sort(function(a, b) { return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0); });
+
+		var html = '';
+		for (var i = 0; i < providers.length; i++) {
+			var p = providers[i];
+			var isActive = activeModel && activeModel.indexOf(p.name + '/') === 0;
+			var firstModel = (p.models && p.models[0]) || null;
+			var modelId = firstModel ? firstModel.id : '';
+			html += '<div class="oc-provider-card' + (isActive ? ' is-active' : '') + '" data-provider="' + escapeHtml(p.name) + '">';
+			html += '<div class="oc-card-head"><span class="oc-card-name">' + escapeHtml(p.name) + '</span>';
+			if (isActive) html += '<span class="oc-active-badge">活跃</span>';
+			html += '</div>';
+			html += '<div class="oc-card-body">';
+			html += '<div class="oc-card-row"><span class="oc-row-label">API:</span><span class="oc-row-value">' + escapeHtml(p.api || 'openai-completions') + '</span></div>';
+			html += '<div class="oc-card-row"><span class="oc-row-label">URL:</span><span class="oc-row-value">' + escapeHtml(p.baseUrl || '') + '</span></div>';
+			if (p.models && p.models.length) {
+				html += '<div class="oc-card-models">';
+				for (var j = 0; j < p.models.length; j++) {
+					html += '<span class="oc-card-model-id">' + escapeHtml(p.models[j].id || p.models[j].name || '?') + '</span>';
+				}
+				html += '</div>';
+			}
+			html += '</div>';
+			html += '<div class="oc-card-foot">';
+			html += '<button class="oc-btn-test" data-provider="' + escapeHtml(p.name) + '">🔌 测试</button>';
+			html += '<button class="oc-btn-edit" data-provider="' + escapeHtml(p.name) + '">✏️ 编辑</button>';
+			if (!isActive) {
+				html += '<button class="oc-btn-set-active oc-btn-primary" data-modelid="' + escapeHtml(p.name + '/' + modelId) + '">★ 设为活跃</button>';
+				html += '<button class="oc-btn-delete oc-btn-danger" data-provider="' + escapeHtml(p.name) + '">🗑 删除</button>';
+			}
+			html += '</div></div>';
+		}
+		grid.innerHTML = html;
+		updateActiveBanner(activeModel);
+	}
+
+	function updateActiveBanner(activeModel) {
+		var el = document.getElementById('oc-active-model');
+		if (!el) return;
+		if (activeModel) {
+			el.outerHTML = '<code id="oc-active-model">' + escapeHtml(activeModel) + '</code>';
+		} else {
+			el.outerHTML = '<span class="oc-active-none" id="oc-active-model">未配置 — 添加供应商后将自动设为活跃</span>';
+		}
+	}
+
+	// ── Modal 控制 ────────────────────────────────────────
+	var modal = document.getElementById('oc-modal-mask');
+	function openModal(mode, providerName) {
+		document.getElementById('oc-f-mode').value = mode;
+		document.getElementById('oc-modal-title').textContent = mode === 'edit' ? '编辑模型供应商' : '添加模型供应商';
+		document.getElementById('oc-test-result').textContent = '';
+		document.getElementById('oc-test-result').style.color = '';
+
+		// 重置表单
+		document.getElementById('oc-f-preset').value = 'qwen';
+		document.getElementById('oc-f-provider').value = providerName || '';
+		document.getElementById('oc-f-api').value = 'openai-completions';
+		document.getElementById('oc-f-baseurl').value = '';
+		document.getElementById('oc-f-apikey').value = '';
+		document.getElementById('oc-f-modelid').value = '';
+		document.getElementById('oc-f-ctx').value = '128000';
+		document.getElementById('oc-f-maxtok').value = '4096';
+		document.getElementById('oc-f-original-name').value = providerName || '';
+
+		if (mode === 'edit' && providerName) {
+			// 拉取详情
+			(new XHR()).get(apiListUrl, null, function(x) {
+				try {
+					var d = JSON.parse(x.responseText);
+					var prov = null;
+					for (var i = 0; i < (d.providers || []).length; i++) {
+						if (d.providers[i].name === providerName) { prov = d.providers[i]; break; }
+					}
+					if (!prov) { toast('未找到该供应商', 'err'); return; }
+					document.getElementById('oc-f-provider').value = prov.name;
+					document.getElementById('oc-f-api').value = prov.api || 'openai-completions';
+					document.getElementById('oc-f-baseurl').value = prov.baseUrl || '';
+					document.getElementById('oc-f-apikey').value = ''; // 出于安全永远不显示
+					document.getElementById('oc-f-apikey').placeholder = prov.apiKeyMasked ? ('已配置: ' + prov.apiKeyMasked) : '未设置';
+					var m = (prov.models && prov.models[0]) || null;
+					if (m) {
+						document.getElementById('oc-f-modelid').value = m.id || '';
+						document.getElementById('oc-f-ctx').value = m.contextWindow || 128000;
+						document.getElementById('oc-f-maxtok').value = m.maxTokens || 4096;
+					}
+					modal.classList.add('show');
+				} catch (e) {
+					toast('加载失败: ' + e.message, 'err');
+				}
+			});
+		} else {
+			// add 模式: 选 qwen 预设自动填入
+			onPresetChange();
+			modal.classList.add('show');
+		}
+	}
+	function closeModal() {
+		modal.classList.remove('show');
+	}
+
+	// ── 预设联动 ──────────────────────────────────────────
+	function onPresetChange() {
+		var sel = document.getElementById('oc-f-preset');
+		var opt = sel.options[sel.selectedIndex];
+		if (!opt) return;
+		var baseUrl = opt.getAttribute('data-baseurl') || '';
+		var api = opt.getAttribute('data-api') || 'openai-completions';
+		document.getElementById('oc-f-baseurl').value = baseUrl;
+		document.getElementById('oc-f-api').value = api;
+		// 自定义默认留空 baseUrl 让用户填
+		if (sel.value === 'custom' || sel.value === 'custom-anthropic') {
+			document.getElementById('oc-f-baseurl').value = '';
+		}
+		// 联想 provider id (仅在 add 模式 + 字段空时才填)
+		if (document.getElementById('oc-f-mode').value === 'add' && !document.getElementById('oc-f-provider').value) {
+			document.getElementById('oc-f-provider').value = sel.value;
+		}
+	}
+
+	// ── 测试连接 (modal 内) ───────────────────────────────
+	function testConnection() {
+		var resultEl = document.getElementById('oc-test-result');
+		var btn = document.getElementById('oc-btn-test-modal');
+		var baseUrl = document.getElementById('oc-f-baseurl').value.trim();
+		var apiKey  = document.getElementById('oc-f-apikey').value.trim();
+		var api     = document.getElementById('oc-f-api').value;
+
+		if (!baseUrl) { resultEl.textContent = '请先填 Base URL'; resultEl.style.color = '#cf222e'; return; }
+		if (!apiKey) {
+			resultEl.innerHTML = '<span style="color:#9a6700;">⚠ 未填 API Key，将跳过鉴权头</span>';
+		}
+
+		btn.disabled = true;
+		btn.innerHTML = '<span class="oc-loading"></span>测试中...';
+		resultEl.innerHTML = '<span class="oc-loading"></span>正在测试 (5s 预检 + 探活)...';
+		resultEl.style.color = '#666';
+
+		(new XHR()).post(testUrl, { baseUrl: baseUrl, apiKey: apiKey, api: api }, function(x) {
+			btn.disabled = false;
+			btn.innerHTML = '🔌 测试连接';
+			try {
+				var d = JSON.parse(x.responseText);
+				if (d.status === 'ok') {
+					resultEl.innerHTML = '<span style="color:#1a7f37;font-weight:500;">✓ ' + escapeHtml(d.message || '成功') + '</span>';
+				} else {
+					resultEl.innerHTML = '<span style="color:#cf222e;font-weight:500;">✗ ' + escapeHtml(d.message || d.error || '失败') + '</span>';
+				}
+			} catch (e) {
+				resultEl.innerHTML = '<span style="color:#cf222e;">解析失败: ' + escapeHtml(e.message) + '</span>';
+			}
+		});
+	}
+
+	// ── 保存 ─────────────────────────────────────────────
+	function saveProvider() {
+		var mode = document.getElementById('oc-f-mode').value;
+		var provider = document.getElementById('oc-f-provider').value.trim();
+		var baseUrl  = document.getElementById('oc-f-baseurl').value.trim();
+		var apiKey   = document.getElementById('oc-f-apikey').value.trim();
+		var api      = document.getElementById('oc-f-api').value;
+		var modelId  = document.getElementById('oc-f-modelid').value.trim();
+		var ctx      = document.getElementById('oc-f-ctx').value;
+		var maxTok   = document.getElementById('oc-f-maxtok').value;
+
+		if (!provider) { toast('请填供应商 ID', 'err'); return; }
+		if (!baseUrl)  { toast('请填 Base URL', 'err'); return; }
+		if (!modelId)  { toast('请填默认模型 ID', 'err'); return; }
+		if (mode === 'add' && !apiKey) { toast('添加新供应商必须填 API Key', 'err'); return; }
+
+		var btn = document.getElementById('oc-modal-save');
+		btn.disabled = true;
+		btn.innerHTML = '<span class="oc-loading"></span>保存中...';
+
+		var body = {
+			provider: provider,
+			baseUrl: baseUrl,
+			api: api,
+			modelId: modelId,
+			contextWindow: ctx,
+			maxTokens: maxTok,
+		};
+		if (mode === 'edit') {
+			body._mode = 'edit';
+			body._original = document.getElementById('oc-f-original-name').value;
+		}
+		if (apiKey) body.apiKey = apiKey;
+
+		(new XHR()).post(saveUrl, body, function(x) {
+			btn.disabled = false;
+			btn.innerHTML = '保存';
+			try {
+				var d = JSON.parse(x.responseText);
+				if (d.status === 'ok') {
+					toast(mode === 'edit' ? '已更新 ' + provider : '已添加 ' + provider, 'ok');
+					closeModal();
+					loadList();
+				} else {
+					toast('保存失败: ' + (d.message || d.error), 'err');
+				}
+			} catch (e) {
+				toast('解析失败: ' + e.message, 'err');
+			}
+		});
+	}
+
+	// ── 事件绑定 ──────────────────────────────────────────
+	document.getElementById('oc-btn-add').addEventListener('click', function() { openModal('add'); });
+	document.getElementById('oc-modal-close').addEventListener('click', closeModal);
+	document.getElementById('oc-modal-cancel').addEventListener('click', closeModal);
+	document.getElementById('oc-modal-save').addEventListener('click', saveProvider);
+	document.getElementById('oc-btn-test-modal').addEventListener('click', testConnection);
+	document.getElementById('oc-f-preset').addEventListener('change', onPresetChange);
+	modal.addEventListener('click', function(e) {
+		if (e.target === modal) closeModal();
+	});
+
+	// 卡片上的按钮（事件代理）
+	document.getElementById('oc-provider-grid').addEventListener('click', function(e) {
+		var btn = e.target.closest('button');
+		if (!btn) return;
+		var provider = btn.getAttribute('data-provider');
+		var modelId  = btn.getAttribute('data-modelid');
+
+		if (btn.classList.contains('oc-btn-edit')) {
+			openModal('edit', provider);
+		} else if (btn.classList.contains('oc-btn-delete')) {
+			if (!confirm('确认删除供应商 "' + provider + '"?\n\n注意: 关联的 model id 也会从 agents.defaults.models 中移除。\n当前活跃的供应商无法删除 — 请先切换活跃模型。')) return;
+			btn.disabled = true;
+			btn.innerHTML = '<span class="oc-loading"></span>';
+			(new XHR()).post(deleteUrl, { provider: provider }, function(x) {
+				try {
+					var d = JSON.parse(x.responseText);
+					if (d.status === 'ok') {
+						toast('已删除 ' + provider, 'ok');
+						loadList();
+					} else {
+						toast('删除失败: ' + (d.message || d.error), 'err');
+						btn.disabled = false;
+						btn.innerHTML = '🗑 删除';
+					}
+				} catch (e) {
+					toast('解析失败: ' + e.message, 'err');
+					btn.disabled = false;
+					btn.innerHTML = '🗑 删除';
+				}
+			});
+		} else if (btn.classList.contains('oc-btn-set-active')) {
+			if (!confirm('将活跃模型切换为 ' + modelId + ' ?')) return;
+			btn.disabled = true;
+			btn.innerHTML = '<span class="oc-loading"></span>';
+			(new XHR()).post(setActiveUrl, { modelId: modelId }, function(x) {
+				try {
+					var d = JSON.parse(x.responseText);
+					if (d.status === 'ok') {
+						toast('已切换活跃模型', 'ok');
+						loadList();
+					} else {
+						toast('切换失败: ' + (d.message || d.error), 'err');
+						btn.disabled = false;
+						btn.innerHTML = '★ 设为活跃';
+					}
+				} catch (e) {
+					toast('解析失败: ' + e.message, 'err');
+					btn.disabled = false;
+					btn.innerHTML = '★ 设为活跃';
+				}
+			});
+		} else if (btn.classList.contains('oc-btn-test')) {
+			// 卡片上的测试: 先查 baseUrl + apiKey (apiKey 我们不知道, 只能用预设 url 测试连通性)
+			btn.disabled = true;
+			btn.innerHTML = '<span class="oc-loading"></span>';
+			// 通过 apiListUrl 拿 baseUrl
+			(new XHR()).get(apiListUrl, null, function(x) {
+				try {
+					var d = JSON.parse(x.responseText);
+					var prov = null;
+					for (var i = 0; i < d.providers.length; i++) {
+						if (d.providers[i].name === provider) { prov = d.providers[i]; break; }
+					}
+					if (!prov || !prov.baseUrl) {
+						toast('无法读取 ' + provider + ' 的 URL', 'err');
+						btn.disabled = false; btn.innerHTML = '🔌 测试';
+						return;
+					}
+					// 注意: 出于安全, API key 不会通过 XHR 回传, 因此这里只做 5s 连通性预检
+					// 完整带 key 探活请用 modal 里的"测试连接"
+					(new XHR()).post(testUrl, { baseUrl: prov.baseUrl, apiKey: '', api: prov.api || 'openai-completions' }, function(x2) {
+						btn.disabled = false;
+						btn.innerHTML = '🔌 测试';
+						try {
+							var dd = JSON.parse(x2.responseText);
+							if (dd.status === 'ok') {
+								toast(provider + ': ' + (dd.message || '连通正常'), 'ok');
+							} else {
+								toast(provider + ': ' + (dd.message || dd.error), 'err');
+							}
+						} catch (e) { toast('解析失败', 'err'); }
+					});
+				} catch (e) {
+					toast('读取失败: ' + e.message, 'err');
+					btn.disabled = false; btn.innerHTML = '🔌 测试';
+				}
+			});
+		}
+	});
+
+	// 启动时拉一次（虽然服务端已渲染, 但 XHR 可以拿到最新状态）
+	loadList();
+})();
+//]]>
+</script>
+
+<%+footer%>
