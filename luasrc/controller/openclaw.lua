@@ -421,6 +421,7 @@ local MODEL_PROVIDER_PRESETS = {
 	{ id = "siliconflow",  name = "硅基流动 SiliconFlow",   baseUrl = "https://api.siliconflow.cn/v1",                        api = "openai-completions" },
 	{ id = "baidu",        name = "百度千帆",                baseUrl = "https://qianfan.baidubce.com/v2",                      api = "openai-completions" },
 	{ id = "zhipu",        name = "智谱 GLM / Z.AI",        baseUrl = "https://open.bigmodel.cn/api/paas/v4",                api = "openai-completions" },
+	{ id = "minimax",      name = "Minimax (国内)",          baseUrl = "https://api.MiniMax.cn/v1",                          api = "openai-completions" },
 	{ id = "yiwanai-fan",  name = "一万AI分享 粉丝专享",     baseUrl = "https://api.yiwanai.example/v1",                     api = "openai-completions" },
 	-- 国外
 	{ id = "openai",       name = "OpenAI",                 baseUrl = "https://api.openai.com/v1",                            api = "openai-completions" },

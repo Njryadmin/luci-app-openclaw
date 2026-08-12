@@ -489,7 +489,7 @@ local installed    = installed
 				<select id="oc-f-preset">
 					<optgroup label="── 国内 ──">
 					<% for _, p in ipairs(presets) do
-						if p.id == "qwen" or p.id == "bailian" or p.id == "lkeap" or p.id == "siliconflow" or p.id == "baidu" or p.id == "zhipu" or p.id == "yiwanai-fan" then %>
+						if p.id == "qwen" or p.id == "bailian" or p.id == "lkeap" or p.id == "siliconflow" or p.id == "baidu" or p.id == "zhipu" or p.id == "minimax" or p.id == "yiwanai-fan" then %>
 					<option value="<%=p.id%>" data-baseurl="<%=p.baseUrl%>" data-api="<%=p.api%>"><%=p.name%></option>
 					<% end end %>
 					</optgroup>
