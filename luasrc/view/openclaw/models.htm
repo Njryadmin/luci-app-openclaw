@@ -14,81 +14,38 @@ local installed    = installed
 %>
 
 <style type="text/css">
-.oc-models-page {
-	max-width: 1100px;
-	margin: 0 auto;
-}
+/* ── 页面标题 (跟 console.htm / wechat.htm / advanced.htm 一致) ── */
+.oc-page-header { margin: 0 0 16px 0; }
+.oc-page-header h2 { font-size: 18px; font-weight: 600; color: #333; margin: 0 0 6px 0; }
+.oc-page-header p { font-size: 13px; color: #666; margin: 0; line-height: 1.6; }
 
-.oc-models-header {
+/* ── 顶部操作条 (跟 basic.lua 快捷操作一致) ── */
+.oc-models-actions {
 	display: flex;
-	align-items: flex-end;
-	justify-content: space-between;
-	gap: 16px;
-	margin-bottom: 16px;
+	gap: 10px;
 	flex-wrap: wrap;
+	margin: 0 0 16px 0;
 }
-.oc-models-header h2 {
-	font-size: 18px;
-	font-weight: 600;
-	color: #333;
-	margin: 0 0 6px 0;
-}
-.oc-models-header p {
-	font-size: 13px;
-	color: #666;
-	margin: 0;
-	line-height: 1.6;
-}
-.oc-models-header .oc-add-btn {
-	padding: 8px 18px;
-	background: #1a7f37;
-	color: #fff;
-	border: none;
-	border-radius: 6px;
-	font-size: 13px;
-	font-weight: 500;
-	cursor: pointer;
-	white-space: nowrap;
-}
-.oc-models-header .oc-add-btn:hover { background: #166a2d; }
-.oc-models-header .oc-add-btn:disabled {
-	background: #999;
-	cursor: not-allowed;
-}
+.oc-models-actions .oc-add-btn { white-space: nowrap; }
 
-.oc-not-installed {
-	padding: 24px;
-	background: #fff8c5;
-	border: 1px solid #d4a72c;
-	border-radius: 8px;
-	color: #9a6700;
-	font-size: 14px;
-	text-align: center;
-}
-.oc-not-installed code {
-	background: rgba(0,0,0,0.06);
-	padding: 1px 6px;
-	border-radius: 3px;
-	font-family: monospace;
-}
-
-.oc-active-banner {
+/* ── 状态信息条 (跟 console.htm oc-console-info 一致) ── */
+.oc-models-info {
 	display: flex;
 	align-items: center;
 	gap: 12px;
-	padding: 12px 16px;
+	padding: 10px 16px;
 	margin-bottom: 16px;
-	background: linear-gradient(135deg, #e8f5e9, #f1f8e9);
-	border: 1px solid #c5e1a5;
-	border-radius: 8px;
+	background: #f6f8fa;
+	border: 1px solid #e1e4e8;
+	border-radius: 6px;
 	font-size: 13px;
+	color: #555;
+	flex-wrap: wrap;
 }
-.oc-active-banner .oc-active-label {
-	color: #2e7d32;
-	font-weight: 600;
-	white-space: nowrap;
-}
-.oc-active-banner code {
+.oc-models-info .label { color: #888; }
+.oc-models-info .value { font-family: monospace; color: #333; font-weight: 500; }
+.oc-models-info .sep { color: #ddd; }
+.oc-models-info code {
 	background: rgba(0,0,0,0.06);
 	padding: 2px 8px;
 	border-radius: 4px;
@@ -96,9 +53,24 @@ local installed    = installed
 	font-size: 12px;
 	color: #333;
 }
-.oc-active-banner .oc-active-none {
-	color: #cf222e;
-	font-weight: 500;
+.oc-models-info .oc-info-none { color: #cf222e; font-weight: 500; }
+
+/* ── 未安装 OpenClaw 时的降级提示 (改成中性样式) ── */
+.oc-not-installed {
+	padding: 16px;
+	background: #fff8c5;
+	border: 1px solid #d4a72c;
+	border-radius: 6px;
+	color: #9a6700;
+	font-size: 13px;
+	text-align: center;
+	margin-bottom: 16px;
+}
+.oc-not-installed code {
+	background: rgba(0,0,0,0.06);
+	padding: 1px 6px;
+	border-radius: 3px;
+	font-family: monospace;
 }
 
 .oc-provider-grid {
@@ -233,79 +205,70 @@ local installed    = installed
 }
 .oc-empty p { margin: 6px 0; }
 
-/* ── Modal ── */
-.oc-modal-mask {
+/* ── Modal (跟 wechat.htm 命名一致: oc-modal-overlay / oc-modal / oc-modal-header) ── */
+.oc-modal-overlay {
 	display: none;
 	position: fixed;
-	left: 0; top: 0; right: 0; bottom: 0;
-	background: rgba(0,0,0,0.4);
-	z-index: 9000;
+	top: 0; left: 0; right: 0; bottom: 0;
+	background: rgba(0,0,0,0.5);
+	z-index: 1000;
 	align-items: center;
 	justify-content: center;
 }
-.oc-modal-mask.show { display: flex; }
+.oc-modal-overlay.show { display: flex; }
 .oc-modal {
 	background: #fff;
-	border-radius: 8px;
+	border-radius: 12px;
+	padding: 24px;
 	width: 560px;
 	max-width: 92vw;
 	max-height: 90vh;
 	overflow-y: auto;
-	box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+	box-shadow: 0 4px 20px rgba(0,0,0,0.15);
 }
-.oc-modal-head {
-	padding: 14px 18px;
-	background: #f6f8fa;
-	border-bottom: 1px solid #eaeaea;
-	border-radius: 8px 8px 0 0;
+.oc-modal-header {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
+	margin-bottom: 16px;
 }
-.oc-modal-head h3 {
+.oc-modal-header h3 {
 	margin: 0;
-	font-size: 15px;
+	font-size: 16px;
 	font-weight: 600;
-	color: #1f2937;
+	color: #333;
 }
-.oc-modal-head .oc-modal-close {
+.oc-modal-header .oc-modal-close {
 	background: none;
 	border: none;
 	font-size: 20px;
-	color: #888;
+	color: #666;
 	cursor: pointer;
-	padding: 0 4px;
+	padding: 0;
 	line-height: 1;
 }
-.oc-modal-head .oc-modal-close:hover { color: #333; }
-.oc-modal-body { padding: 16px 18px; }
-.oc-modal-foot {
-	padding: 12px 18px;
-	background: #fafbfc;
-	border-top: 1px solid #eaeaea;
-	border-radius: 0 0 8px 8px;
+.oc-modal-header .oc-modal-close:hover { color: #333; }
+.oc-modal-body { margin-bottom: 16px; }
+.oc-modal-footer {
 	display: flex;
 	justify-content: flex-end;
 	gap: 8px;
+	margin-top: 16px;
 }
-.oc-modal-foot button {
+.oc-modal-footer button {
 	padding: 7px 18px;
 	background: #fff;
 	border: 1px solid #d0d7de;
 	border-radius: 4px;
 	font-size: 13px;
 	cursor: pointer;
+	color: #333;
 }
-.oc-modal-foot .oc-btn-cancel:hover { background: #f0f3f6; }
-.oc-modal-foot .oc-btn-save {
-	background: #1a7f37;
-	color: #fff;
-	border-color: #1a7f37;
-}
-.oc-modal-foot .oc-btn-save:hover { background: #166a2d; }
-.oc-modal-foot .oc-btn-save:disabled {
+.oc-modal-footer .oc-btn-cancel:hover { background: #f6f8fa; }
+.oc-modal-footer .oc-btn-save:disabled {
 	background: #999;
 	border-color: #999;
+	color: #fff;
 	cursor: not-allowed;
 }
 
@@ -388,30 +351,29 @@ local installed    = installed
 @keyframes oc-spin { to { transform: rotate(360deg); } }
 </style>
 
-<div class="oc-models-page">
+<div class="oc-page-header">
+	<h2>🧠 模型供应商管理</h2>
+	<p>管理 OpenClaw 的模型供应商和活跃模型。国内预设优先，可一键测试连接；变更自动备份到 <code>openclaw.json.bak-&lt;时间戳&gt;</code>。</p>
+</div>
 
-	<div class="oc-models-header">
-		<div>
-			<h2>🧠 模型供应商管理</h2>
-			<p>管理 OpenClaw 的模型供应商和活跃模型。国内预设优先，可一键测试连接；变更自动备份到 <code>openclaw.json.bak-&lt;时间戳&gt;</code>。</p>
-		</div>
-		<button class="oc-add-btn" id="oc-btn-add" <% if not installed then %>disabled<% end %>>+ 添加供应商</button>
-	</div>
+<div class="oc-models-actions">
+	<button class="btn cbi-button cbi-button-apply" type="button" onclick="openModal('add')" id="oc-btn-add" <% if not installed then %>disabled<% end %>>+ 添加供应商</button>
+</div>
 
-	<% if not installed then %>
-	<div class="oc-not-installed">
-		⚠️ 未检测到 <code>openclaw.json</code>，请先到 <strong>基本设置</strong> 完成首次安装。
-	</div>
+<% if not installed then %>
+<div class="oc-not-installed">
+	⚠️ 未检测到 <code>openclaw.json</code>，请先到 <strong>基本设置</strong> 完成首次安装。
+</div>
+<% else %>
+
+<div class="oc-models-info">
+	<span class="label">当前活跃模型:</span>
+	<% if active_model and active_model ~= "" then %>
+	<code id="oc-active-model"><%=active_model%></code>
 	<% else %>
-
-	<div class="oc-active-banner">
-		<span class="oc-active-label">当前活跃模型:</span>
-		<% if active_model and active_model ~= "" then %>
-		<code id="oc-active-model"><%=active_model%></code>
-		<% else %>
-		<span class="oc-active-none" id="oc-active-model">未配置 — 添加供应商后将自动设为活跃</span>
-		<% end %>
-	</div>
+	<span class="oc-info-none" id="oc-active-model">未配置 — 添加供应商后将自动设为活跃</span>
+	<% end %>
+</div>
 
 	<div class="oc-provider-grid" id="oc-provider-grid">
 		<% if not providers or next(providers) == nil then %>
@@ -474,9 +436,9 @@ local installed    = installed
 </div>
 
 <!-- Modal -->
-<div class="oc-modal-mask" id="oc-modal-mask">
+<div class="oc-modal-overlay" id="oc-modal-overlay">
 	<div class="oc-modal">
-		<div class="oc-modal-head">
+		<div class="oc-modal-header">
 			<h3 id="oc-modal-title">添加模型供应商</h3>
 			<button class="oc-modal-close" id="oc-modal-close" type="button">×</button>
 		</div>
@@ -561,9 +523,9 @@ local installed    = installed
 				<span id="oc-test-result" style="margin-left:8px;font-size:12px;"></span>
 			</div>
 		</div>
-		<div class="oc-modal-foot">
+		<div class="oc-modal-footer">
 			<button class="oc-btn-cancel" id="oc-modal-cancel" type="button">取消</button>
-			<button class="oc-btn-save" id="oc-modal-save" type="button">保存</button>
+			<button class="btn cbi-button cbi-button-apply oc-btn-save" id="oc-modal-save" type="button">保存</button>
 		</div>
 	</div>
 </div>
@@ -658,12 +620,12 @@ local installed    = installed
 		if (activeModel) {
 			el.outerHTML = '<code id="oc-active-model">' + escapeHtml(activeModel) + '</code>';
 		} else {
-			el.outerHTML = '<span class="oc-active-none" id="oc-active-model">未配置 — 添加供应商后将自动设为活跃</span>';
+			el.outerHTML = '<span class="oc-info-none" id="oc-active-model">未配置 — 添加供应商后将自动设为活跃</span>';
 		}
 	}
 
 	// ── Modal 控制 ────────────────────────────────────────
-	var modal = document.getElementById('oc-modal-mask');
+	var modal = document.getElementById('oc-modal-overlay');
 	function openModal(mode, providerName) {
 		document.getElementById('oc-f-mode').value = mode;
 		document.getElementById('oc-modal-title').textContent = mode === 'edit' ? '编辑模型供应商' : '添加模型供应商';
