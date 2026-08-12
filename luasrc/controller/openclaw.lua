@@ -1041,14 +1041,18 @@ function action_plugin_upgrade()
 	local sys = require "luci.sys"
 
 	local version = http.formvalue("version") or ""
+	-- 兼容用户输入带 `v` 前缀或首尾空白 (与 action_check_update 一致)
+	version = version:gsub("^v", ""):gsub("^%s+", ""):gsub("%s+$", "")
 	if version == "" then
 		http.prepare_content("application/json")
 		http.write_json({ status = "error", message = "缺少版本号参数" })
 		return
 	end
 
-	-- 安全检查: version 只允许数字和点
-	if not version:match("^[%d%.]+$") then
+	-- 安全检查: version 必须以字母/数字开头，只能含字母/数字/点/横线/下划线
+	-- 涵盖 "2.2.0" / "2.2.0-fork-test1" / "2.2.0-rc1" 等 GitHub tag 合法格式
+	-- 拒绝 "../etc" (路径遍历)、带 "?&;" (URL 注入) 等不安全输入
+	if not version:match("^[%w][%w%.%-_]*$") then
 		http.prepare_content("application/json")
 		http.write_json({ status = "error", message = "版本号格式无效" })
 		return
