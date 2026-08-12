@@ -341,6 +341,9 @@ local function write_openclaw_config(config)
 		return false, "jsonc_module_missing"
 	end
 	local content = jsonc.stringify(config)
+	-- luci.jsonc.stringify 会把字符串里的 / 转义成 \/ 防止 </script> HTML 注入,
+	-- 但 openclaw.json 是配置文件不需要这种保护, 把 \/ 还原成 / 让文件干净
+	content = content:gsub("\\/", "/")
 
 	-- 写入
 	local out = io.open(config_file, "w")
@@ -2618,7 +2621,7 @@ function action_models_set_active()
 	local http = require "luci.http"
 	local model_id = http.formvalue("modelId") or ""
 
-	if model_id == "" or not model_id:match("^[%w][%w%-_%.%/]*$") then
+	if model_id == "" or not model_id:match("^[%w][%w%-_%./]*$") then
 		http.prepare_content("application/json")
 		http.write_json({ status = "error", error = "invalid_modelId" })
 		return
