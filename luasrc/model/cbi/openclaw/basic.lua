@@ -1,7 +1,9 @@
 -- luci-app-openclaw — 基本设置 CBI Model
 local sys = require "luci.sys"
 local uci = require "luci.model.uci".cursor()
-local json = require "luci.json"
+-- OpenWrt 24.10 不再有 luci.json,统一用 luci.jsonc
+local ok_jsonc, jsonc = pcall(require, "luci.jsonc")
+local json = (ok_jsonc and jsonc) or nil
 
 m = Map("openclaw", "OpenClaw AI 网关",
 	"OpenClaw 是一个 AI 编程代理网关，支持 GitHub Copilot、Claude、GPT、Gemini 等大模型以及 QQ、Telegram、Discord 等多种消息渠道。")
@@ -40,8 +42,8 @@ act.cfgvalue = function(self, section)
 	local initial_backup_dir = (saved_backup_dir ~= "" and saved_backup_dir) or default_backup_dir
 	-- 注入 JS 全局变量 (供 backup 对话框使用)
 	html[#html+1] = '<script type="text/javascript">'
-	html[#html+1] = 'window._ocInitialBackupPath = ' .. json.stringify(initial_backup_dir) .. ';'
-	html[#html+1] = 'window._ocDefaultBackupPath = ' .. json.stringify(default_backup_dir) .. ';'
+	html[#html+1] = 'window._ocInitialBackupPath = ' .. (json and json.stringify(initial_backup_dir) or '""') .. ';'
+	html[#html+1] = 'window._ocDefaultBackupPath = ' .. (json and json.stringify(default_backup_dir) or '""') .. ';'
 	html[#html+1] = '</script>'
 
 	-- 按钮区域
