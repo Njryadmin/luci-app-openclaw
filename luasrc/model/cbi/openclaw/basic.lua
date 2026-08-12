@@ -1,5 +1,9 @@
 -- luci-app-openclaw — 基本设置 CBI Model
 local sys = require "luci.sys"
+local uci = require "luci.model.uci".cursor()
+-- OpenWrt 24.10 不再有 luci.json, 统一用 luci.jsonc
+local ok_jsonc, jsonc = pcall(require, "luci.jsonc")
+local json = (ok_jsonc and jsonc) or nil
 
 m = Map("openclaw", "OpenClaw AI 网关",
 	"OpenClaw 是一个 AI 编程代理网关，支持 GitHub Copilot、Claude、GPT、Gemini 等大模型以及 QQ、Telegram、Discord 等多种消息渠道。")
@@ -29,6 +33,18 @@ act.cfgvalue = function(self, section)
 	local plugin_upgrade_log_url = luci.dispatcher.build_url("admin", "services", "openclaw", "plugin_upgrade_log")
 	local check_system_url = luci.dispatcher.build_url("admin", "services", "openclaw", "check_system")
 	local html = {}
+
+	-- 计算默认备份目录 (与 controller 端 action_backup 的 default_backup_dir 一致)
+	local install_base = uci:get("openclaw", "main", "install_path") or "/opt"
+	install_base = install_base:gsub("/openclaw$", ""):gsub("/+$", "")
+	local default_backup_dir = install_base .. "/openclaw/data/.openclaw/backups"
+	local saved_backup_dir = uci:get("openclaw", "main", "backup_dir") or ""
+	local initial_backup_dir = (saved_backup_dir ~= "" and saved_backup_dir) or default_backup_dir
+	-- 注入 JS 全局变量 (供 backup 对话框使用)
+	html[#html+1] = '<script type="text/javascript">'
+	html[#html+1] = 'window._ocInitialBackupPath = ' .. (json and json.stringify(initial_backup_dir) or '""') .. ';'
+	html[#html+1] = 'window._ocDefaultBackupPath = ' .. (json and json.stringify(default_backup_dir) or '""') .. ';'
+	html[#html+1] = '</script>'
 
 	-- 按钮区域
 	html[#html+1] = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;">'
@@ -505,6 +521,15 @@ act.cfgvalue = function(self, section)
 	-- 备份操作区
 	html[#html+1] = '<div style="margin-bottom:16px;">'
 	html[#html+1] = '<div style="font-weight:600;font-size:13px;color:#555;margin-bottom:8px;">📤 创建备份</div>'
+	-- 自定义备份目录输入
+	html[#html+1] = '<div style="margin-bottom:10px;padding:10px 12px;background:#f6f8fa;border-radius:6px;">'
+	html[#html+1] = '<div style="font-size:11px;color:#666;margin-bottom:4px;">📁 备份目录 <span style="color:#888;">(留空或填错会回退到默认)</span></div>'
+	html[#html+1] = '<div style="display:flex;gap:6px;">'
+	html[#html+1] = '<input type="text" id="oc-backup-path" placeholder="默认: 留空" style="flex:1;padding:6px 10px;border:1px solid #d0d7de;border-radius:4px;font-size:12px;font-family:monospace;">'
+	html[#html+1] = '<button class="btn cbi-button" type="button" onclick="ocResetBackupPath()" style="font-size:11px;padding:4px 10px;" title="恢复默认目录">↺ 默认</button>'
+	html[#html+1] = '</div>'
+	html[#html+1] = '<div style="font-size:11px;color:#888;margin-top:4px;">默认: <code style="background:#fff;padding:1px 5px;border-radius:3px;">' .. default_backup_dir .. '</code><span id="oc-backup-path-saved" style="display:none;margin-left:6px;color:#1a7f37;">✓ 已记住</span></div>'
+	html[#html+1] = '</div>'
 	html[#html+1] = '<div style="display:flex;gap:10px;">'
 	html[#html+1] = '<button class="btn cbi-button cbi-button-apply" type="button" onclick="ocDoBackup(1)" id="btn-bk-config" style="font-size:12px;">📄 仅配置文件</button>'
 	html[#html+1] = '<button class="btn cbi-button cbi-button-action" type="button" onclick="ocDoBackup(0)" id="btn-bk-full" style="font-size:12px;">📦 配置 + 状态数据</button>'
@@ -535,14 +560,29 @@ act.cfgvalue = function(self, section)
 	html[#html+1] = 'var dlg=document.getElementById("oc-backup-dialog");'
 	html[#html+1] = 'dlg.style.display="flex";'
 	html[#html+1] = 'document.getElementById("oc-backup-result").style.display="none";'
+	-- 初始化备份目录输入框 (优先显示用户已保存的自定义目录)
+	html[#html+1] = 'var pEl=document.getElementById("oc-backup-path");'
+	html[#html+1] = 'if(pEl && !pEl.value){pEl.value=window._ocInitialBackupPath||"";}'
+	html[#html+1] = 'var savedHint=document.getElementById("oc-backup-path-saved");'
+	html[#html+1] = 'if(savedHint){savedHint.style.display=(pEl.value===window._ocDefaultBackupPath)?"none":"inline";}'
 	html[#html+1] = 'ocLoadBackupList();'
+	html[#html+1] = '}'
+
+	-- 恢复默认备份目录 (清空输入框 + 重新加载列表)
+	html[#html+1] = 'function ocResetBackupPath(){'
+	html[#html+1] = 'var pEl=document.getElementById("oc-backup-path");'
+	html[#html+1] = 'if(pEl){pEl.value=window._ocDefaultBackupPath||"";}'
+	html[#html+1] = 'var savedHint=document.getElementById("oc-backup-path-saved");'
+	html[#html+1] = 'if(savedHint){savedHint.style.display="none";}'
+	html[#html+1] = 'if(pEl){pEl.focus();}'
 	html[#html+1] = '}'
 
 	-- 加载备份文件列表
 	html[#html+1] = 'function ocLoadBackupList(){'
 	html[#html+1] = 'var el=document.getElementById("oc-backup-list");'
 	html[#html+1] = 'el.innerHTML="<div style=\\"color:#7aa2f7;font-size:12px;padding:8px;\\">⏳ 加载备份列表...</div>";'
-	html[#html+1] = '(new XHR()).get("' .. backup_url .. '?action=list",null,function(x){'
+	html[#html+1] = 'var p=document.getElementById("oc-backup-path");var pVal=p?encodeURIComponent(p.value||""):"";'
+	html[#html+1] = '(new XHR()).get("' .. backup_url .. '?action=list&path="+pVal,null,function(x){'
 	html[#html+1] = 'try{var r=JSON.parse(x.responseText);'
 	html[#html+1] = 'if(r.status==="ok"&&r.backups&&r.backups.length>0){'
 	html[#html+1] = 'var h="<table style=\\"width:100%;border-collapse:collapse;font-size:12px;\\">";'
@@ -584,7 +624,8 @@ act.cfgvalue = function(self, section)
 	html[#html+1] = 'btnC.disabled=true;btnF.disabled=true;'
 	html[#html+1] = 'resEl.style.display="block";'
 	html[#html+1] = 'resEl.innerHTML="<div style=\\"color:#7aa2f7;font-size:12px;padding:8px;\\">⏳ 正在创建备份..."+(onlyConfig?"（仅配置）":"（完整备份，可能需要较长时间）")+"</div>";'
-	html[#html+1] = '(new XHR()).get("' .. backup_url .. '?action=create&only_config="+onlyConfig,null,function(x){'
+	html[#html+1] = 'var p=document.getElementById("oc-backup-path");var pVal=p?encodeURIComponent(p.value||""):"";'
+	html[#html+1] = '(new XHR()).get("' .. backup_url .. '?action=create&only_config="+onlyConfig+"&path="+pVal,null,function(x){'
 	html[#html+1] = 'btnC.disabled=false;btnF.disabled=false;'
 	html[#html+1] = 'try{var r=JSON.parse(x.responseText);'
 	html[#html+1] = 'if(r.status==="ok"){'
@@ -603,7 +644,8 @@ act.cfgvalue = function(self, section)
 	html[#html+1] = 'var resEl=document.getElementById("oc-backup-result");'
 	html[#html+1] = 'resEl.style.display="block";'
 	html[#html+1] = 'resEl.innerHTML="<div style=\\"color:#7aa2f7;font-size:12px;padding:8px;\\">⏳ 正在恢复配置...</div>";'
-	html[#html+1] = '(new XHR()).get("' .. backup_url .. '?action=restore&file="+encodeURIComponent(filename),null,function(x){'
+	html[#html+1] = 'var p=document.getElementById("oc-backup-path");var pVal=p?encodeURIComponent(p.value||""):"";'
+	html[#html+1] = '(new XHR()).get("' .. backup_url .. '?action=restore&file="+encodeURIComponent(filename)+"&path="+pVal,null,function(x){'
 	html[#html+1] = 'try{var r=JSON.parse(x.responseText);'
 	html[#html+1] = 'if(r.status==="ok"){'
 	html[#html+1] = 'resEl.innerHTML="<div style=\\"border:1px solid #c6e9c9;background:#e6f7e9;padding:10px 14px;border-radius:6px;font-size:12px;\\">"+'
@@ -622,7 +664,8 @@ act.cfgvalue = function(self, section)
 	html[#html+1] = 'var resEl=document.getElementById("oc-backup-result");'
 	html[#html+1] = 'resEl.style.display="block";'
 	html[#html+1] = 'resEl.innerHTML="<div style=\\"color:#7aa2f7;font-size:12px;padding:8px;\\">⏳ 正在删除...</div>";'
-	html[#html+1] = '(new XHR()).get("' .. backup_url .. '?action=delete&file="+encodeURIComponent(filename),null,function(x){'
+	html[#html+1] = 'var p=document.getElementById("oc-backup-path");var pVal=p?encodeURIComponent(p.value||""):"";'
+	html[#html+1] = '(new XHR()).get("' .. backup_url .. '?action=delete&file="+encodeURIComponent(filename)+"&path="+pVal,null,function(x){'
 	html[#html+1] = 'try{var r=JSON.parse(x.responseText);'
 	html[#html+1] = 'if(r.status==="ok"){'
 	html[#html+1] = 'resEl.innerHTML="<div style=\\"border:1px solid #c6e9c9;background:#e6f7e9;padding:10px 14px;border-radius:6px;font-size:12px;\\">"+'
