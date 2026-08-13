@@ -22,7 +22,7 @@
 > 完整变更：[CHANGELOG.md](CHANGELOG.md)
 
 <div align="center">
-  <img src="docs/images/2.png" alt="OpenClaw LuCI 管理界面" width="800" style="border-radius:8px;" />
+  <img src="docs/images/3.png" alt="OpenClaw LuCI 管理界面" width="800" style="border-radius:8px;" />
 </div>
 
 **系统要求**
