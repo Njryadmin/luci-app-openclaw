@@ -4,6 +4,42 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [2.1.2-fork-stable] - 2026-08-13
+
+### 升级
+
+- `v2.1.1-fork-test1` 在 iStoreOS 24.10 / OpenWrt 24.10 验证通过后升为正式稳定版 `v2.1.2-fork-stable`
+- 二进制与 `v2.1.1-fork-test1` 相同 (commit `96efc21`)，仅 bump VERSION 2.1.1 → 2.1.2
+- 推荐所有生产环境用户从此 tag 升级
+
+## [2.1.1-fork-test1] - 2026-08-13
+
+### 修复
+
+- **`action_plugin_upgrade` 升级通道版本号验证** — 旧 regex `^[%d%.]+$` 只接受纯数字+点格式，导致 `2.2.0-fork-test1` / `2.2.0-rc1` 等带后缀的 GitHub tag 在 LuCI 一键升级里被拒。新 regex `^[%w][%w%.%-_]*$` 接受任何 GitHub 合法格式，并自动 strip 前导 `v`（防止 `vv2.2.0` 双 v URL）
+
+### 新增
+
+- **自定义备份目录** — `action_backup` 新增 `?path=` 参数支持把备份存到任意绝对路径
+  - 安全校验：绝对路径 + 无 shell metachars + 黑名单（`/proc` `/sys` `/dev` `/usr` `/etc` `/bin` `/sbin` `/lib` `/rom` `/overlay`）+ 拒绝根目录 `/`
+  - 路径解析优先级：请求参数 `path` > UCI `openclaw.main.backup_dir` > 默认 (`install_path/data/.openclaw/backups`)
+  - 用户明确传入 `path` 时持久化到 UCI，下次自动填
+  - 所有 `backup_dir` 用法（`cd_prefix` / `mv` / `ls` × 3）都加 `shellquote` 防御特殊字符
+  - UI：在「基本设置 → 备份/恢复」弹窗的「创建备份」区加 `📁 备份目录` 输入框 + `↺ 默认` 按钮 + `✓ 已记住` hint
+  - 4 个 XHR（`list` / `create` / `restore` / `delete`）都传 `&path=`
+  - `basic.lua` 用 `pcall(require, "luci.jsonc")` 安全模式，兼容 iStoreOS 24.10 只有 `luci.jsonc` 没有 `luci.json` 的环境
+  - 典型场景：把备份存到 USB 盘 (`/mnt/sda1/backups`) 或 NFS 挂载，避免占 OpenClaw data 目录
+
+## [2.1.0-fork-test1] - 2026-08-12
+
+### Fork 初始化
+
+- **chore(fork)**: redirect all upstream metadata to Njryadmin — 8 个文件（README 链接、URL、CI badge、注册信息）从 `10000ge10000` 切到 `Njryadmin`
+- **merge: PR #101** Makefile feeds feeds 修复 (closes #60) — 适配 OpenWrt 25.x feeds 集成失效
+- **merge: PR #102** Telegram 配对修复 (closes #98) — 修复 Telegram 配对助手调用错误的 CLI 子命令
+- GitHub Actions workflow `build.yml` 在 fork 上跑通，tag `v2.1.0-fork-test1` release 产物 (`.run` / `.ipk` / Node musl tar.xz) 完整
+- Fork repo: https://github.com/Njryadmin/luci-app-openclaw (upstream: https://github.com/10000ge10000/luci-app-openclaw)
+
 ## [2.0.11] - 2026-07-10
 
 ### 修复微信扫码后 Gateway 丢失插件

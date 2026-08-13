@@ -9,6 +9,18 @@
 
 在路由器上运行 OpenClaw，通过 LuCI 管理界面完成安装、配置和服务管理。
 
+> **本仓库 (Njryadmin fork) 说明**
+>
+> 这是 [upstream `10000ge10000/luci-app-openclaw`](https://github.com/10000ge10000/luci-app-openclaw) 的维护 fork，专为 iStoreOS 24.10 / OpenWrt 24.10 用户做兼容性修复和功能增强。
+>
+> **Tag 命名约定**：
+> - `vX.Y.Z-fork-stable` — **推荐生产环境使用**，经过 fork-test 系列验证的稳定版
+> - `vX.Y.Z-fork-testN` — 测试版，仅供问题验证用
+>
+> **当前推荐版本**：[`v2.1.2-fork-stable`](https://github.com/Njryadmin/luci-app-openclaw/releases/tag/v2.1.2-fork-stable)
+>
+> 完整变更：[CHANGELOG.md](CHANGELOG.md)
+
 <div align="center">
   <img src="docs/images/2.png" alt="OpenClaw LuCI 管理界面" width="800" style="border-radius:8px;" />
 </div>
